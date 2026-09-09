@@ -40,7 +40,7 @@ void TokenClass::PutTokensInTokenList(std::string ln){
                 break;
         }
         if (!Chunk.empty()){
-            Chunk.push_back({Guess_type, Chunk});
+            TokenList.push_back({Guess_type, Chunk});
         }
 
     }

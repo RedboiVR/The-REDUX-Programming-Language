@@ -17,6 +17,7 @@ typedef struct {
 
 class Tokens {
     public:
+        void FlushToken(Token tkn);
         void AddToken(TokenType type, std::string value);
 
         void Lex(std::string ln);

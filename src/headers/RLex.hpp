@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 
 typedef enum {
     Keyword,
@@ -11,12 +12,12 @@ typedef enum {
 
 typedef struct {
     TokenType token;
-    const char *value;
+    std::string value;
 } Token;
 
 class Tokens {
     public:
-        void AddToken(TokenType type, const char *value);
+        void AddToken(TokenType type, std::string value);
     private:
         std::vector<Token> TokenList;
 };

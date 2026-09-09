@@ -18,6 +18,7 @@ struct Token {
 class TokenClass {
     public:
         void StoreToken(Token tkn);
+        void PutTokensInTokenList(std::string ln);
         std::vector<Token> GetTokens();
     private:
         std::vector<Token> TokenList;

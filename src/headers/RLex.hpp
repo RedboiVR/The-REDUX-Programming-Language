@@ -18,6 +18,8 @@ typedef struct {
 class Tokens {
     public:
         void AddToken(TokenType type, std::string value);
+
+        void Lex(std::string ln);
     private:
         std::vector<Token> TokenList;
 };

@@ -1,4 +1,4 @@
-# The-REDUX-Programming-Language
+# The REDUX Programming Language
 
 Please note that The REDUX Programming Language project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 

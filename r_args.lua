@@ -33,9 +33,9 @@ function redux_args.new(...)
 
     function args:check_arg(n)
         if compile_flags[n] then
-            return true, "compile", n:sub(#"-compile=")
+            return true, "compile", n:sub(#"-compile="+1)
         elseif target_flags[n] then
-            return true, "target", n:sub(#"-target=")
+            return true, "target", n:sub(#"-target="+1)
         end
         return false, nil, nil
     end

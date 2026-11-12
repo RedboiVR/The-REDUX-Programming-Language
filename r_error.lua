@@ -87,4 +87,12 @@ function redux_error.error(configs)
     return diagnostic
 end
 
+--[[
+    Force stop the code.
+]]--
+function redux_error.early_halt(message)
+    print("halted because " .. message)
+    os.exit(1)
+end
+
 return redux_error

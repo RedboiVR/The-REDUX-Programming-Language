@@ -15,7 +15,7 @@ local RDX_TOKENS = {
     -- STRUCTURAL TOKENS
     structural = {
         ':', '(', ')', '{', '}', '[', ']',
-        '=', '.'
+        '=', '.', ','
     },
 
     -- LOGICAL OPERATORS
@@ -41,7 +41,7 @@ local RDX_TOKENS = {
 
     -- COMPARISON OPERATORS
     comparison = {
-        "==", "<->", "!=", "?=",
+        "!=", "==", "<->", "?=",
         "<=", ">=", ">", "<"
     },
 
@@ -183,7 +183,7 @@ local function new_tkn(val, typ)
 end
 
 local function next_is_separator()
-    local next = check(1)
+    local next = check(0)
     local structural = RDX_TOKENS.structural
     local string_delimiters = RDX_TOKENS.string_delimiters
     for i=1, #structural do
@@ -226,6 +226,18 @@ local function rid_of_whitespace(tokens)
     return tokens
 end
 
+local function match_comparison()
+    for i = 1, #RDX_TOKENS.comparison do
+        local operator = RDX_TOKENS.comparison[i]
+
+        if source:sub(c_index, c_index + #operator - 1) == operator then
+            return operator
+        end
+    end
+
+    return nil
+end
+
 local function redux_lexer(s)
     local limiter = 30
     r_l_init(s, limiter)
@@ -245,17 +257,52 @@ local function redux_lexer(s)
     while check(0) ~= "<eof>" do
         local current_char = check(0)
 
+        if is_white_space(current_char) and not in_string then
+            if #saved_characters > 0 then
+                local data = table.concat(saved_characters)
+                emit(new_tkn(data, get_token_type(data)))
+            end
+        
+            if current_char == '\n' then
+                line = line + 1
+            end
+        
+            next()
+            goto continue
+        end
+
         if current_char == "'" or current_char == '"' then
             if not in_string then
                 in_string = true
                 string_delimiter = current_char
+                save_and_next()
+                goto continue
             elseif current_char == string_delimiter then
+                save_and_next()
+        
+                local data = table.concat(saved_characters)
+                emit(new_tkn(data, "value"))
+        
                 in_string = false
                 string_delimiter = nil
+                goto continue
             end
         end
 
-        if is_structural(check(0)) then
+        local comparison = not in_string and match_comparison()
+
+        if comparison then
+            if #saved_characters > 0 then
+                local data = table.concat(saved_characters)
+                emit(new_tkn(data, get_token_type(data)))
+            end
+
+            for i=1, #comparison do
+                next()
+            end
+
+            emit(new_tkn(comparison, "comparison"))
+        elseif is_structural(check(0)) and not in_string then
             if #saved_characters > 0 then
                 local data = table.concat(saved_characters)
                 local token_type = get_token_type(data)
@@ -270,19 +317,20 @@ local function redux_lexer(s)
                 emit(new_tkn(data, token_type))
             end
         elseif next_is_separator() and not in_string then
-            save_and_next()
             local token_value = table.concat(saved_characters)
 
             if #saved_characters > 0 then
                 local token_type = get_token_type(token_value)
                 emit(new_tkn(token_value, token_type))
             end
-
+        
+            save_and_next()
+        
             while is_white_space(check(0)) do
                 if check(0) == '\n' then
                     line = line + 1
                 end
-
+        
                 next()
             end
         else
@@ -292,6 +340,7 @@ local function redux_lexer(s)
 
             save_and_next()
         end
+        ::continue::
     end
 
     if in_string then

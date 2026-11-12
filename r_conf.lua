@@ -1,7 +1,14 @@
-local using_windows = package.config:sub(1,1) == '\\' -- Boolean that decides whether windows is allowed or not.
+local using_windows = package.config:sub(1,1) == '\\'
 
 local redux_configurations = {}
 local self = redux_configurations -- ... OOP ftw?
+
+redux_configurations.project = {
+    name = "REDUX",
+    detailed_name = "The REDUX Programming Language",
+    path = "",
+    creator = "RedboiVR"
+}
 
 redux_configurations.license = "GPL 3.0"
 redux_configurations.dev_contributors = {
@@ -40,5 +47,15 @@ if self.rdx_uses_gcc then
     redux_configurations.gcc_exit_type = exit_type
     redux_configurations.gcc_exit_code = exit_code
 end
+
+-- REDUX compiler settings
+--[[
+    Optimization:
+        0 - No optimization.
+        1 - Normal optimization.
+        2 - Brute forced optimization
+    
+]]--
+redux_configurations.optimization = 1
 
 return redux_configurations

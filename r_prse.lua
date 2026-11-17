@@ -116,7 +116,6 @@ local function create_literal(data)
     data = data or r_error.early_halt("literals require data")
 
     r_error.assertion(data.value ~= nil, "literal requires a value")
-    r_error.assertion(data.node_type ~= nil, "literal needs a node type")
     r_error.assertion(data.literal_type ~= nil, "literal needs a literal type")
 
     return {
@@ -161,6 +160,7 @@ local function create_expr(data)
     r_error.assertion(data.value ~= nil, "value must exist")
 
     return {
+        node_type = "expression",
         value = data.value,
 
         fix = fix_type,
@@ -263,6 +263,8 @@ local function get_type_of(value)
     return val_type
 end
 
+local parse_expr
+
 local function parse_prefix()
     if tokens == nil then r_error.early_halt("tokens doesn't exist yet") end
 
@@ -279,19 +281,66 @@ local function parse_prefix()
     end
 
     local val = token.VALUE
-    local type = token.TYPE
+    local token_type = token.TYPE
 
-    if val == "value" then
+    if token_type == "value" or token_type == "literals" then
+        local lit_type = get_type_of(val)
+
+        if lit_type then
+            return create_literal({
+                node_type = "literal",
+                literal_type = lit_type,
+                value = val
+            })
+        end
+    end
+    if token_type == "identifier" then
         return create_literal({
-            node_type = "literal",
-            literal_type = "fill this out",
+            node_type = "identifier",
+            literal_type = "identifier",
             value = val
+        })
+    end
+    if bp.prefix_binding_power[val] then
+        local operand = parse_expr(bp.prefix_binding_power[val])
+        return create_expr({
+            value = val,
+            fix = "prefix",
+            right = operand
         })
     end
 end
 
-local function parse_expr()
-    
+parse_expr = function(min_bp)
+    local lhs = parse_prefix()
+
+    while true do
+        local token = check_t(0)
+
+        if not token then break end
+
+        local operator = token.VALUE
+        local binding = bp.binding_power[operator]
+
+        if not binding then break end
+
+        local leftbp,rightbp = binding[1], binding[2]
+
+        if leftbp<min_bp then break end
+
+        advance()
+
+        local rhs = parse_expr(rightbp)
+
+        lhs = create_expr({
+            value = operator,
+            fix = "infix",
+            left = lhs,
+            right = rhs
+        })
+    end
+
+    return lhs
 end
 
 -- REDUX parser! --

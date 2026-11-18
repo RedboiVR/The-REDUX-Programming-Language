@@ -95,4 +95,17 @@ function redux_error.early_halt(message)
     os.exit(1)
 end
 
+--[[
+    lua assert() except it passes through a pcall
+]]--
+function redux_error.assertion(value, message)
+    local good, res = pcall(function()
+        return assert(value, message)
+    end)
+    if not good then
+        redux_error.early_halt(res)
+        os.exit(1)
+    end
+end
+
 return redux_error

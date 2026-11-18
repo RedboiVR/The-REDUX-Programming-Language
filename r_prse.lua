@@ -85,6 +85,7 @@ local bp = {
     prefix_binding_power = {
         ["not"] = 35,
         ["-"]   = 65,
+        ["ref"] = 75,
         ["?="]  = 35
     }
 }
@@ -384,6 +385,24 @@ local function parse_prefix()
     end
     if bp.prefix_binding_power[val] then
         local operand = parse_expr(bp.prefix_binding_power[val])
+        if val == "ref" then
+            if not operand then
+                local data = {
+                    category = "Syntax",
+                    readable_message = "Reference does not have identifier",
+                    compiler_message = "nonexistant reference"
+                }
+                print_error(data)
+            end
+            if operand.node_type ~= "identifier" then
+                local data = {
+                    category = "Syntax",
+                    readable_message = "Reference is not identifier",
+                    compiler_message = "reference not identifier"
+                }
+                print_error(data)
+            end
+        end
         return create_expr({
             value = val,
             fix = "prefix",
@@ -392,7 +411,24 @@ local function parse_prefix()
     end
 end
 
-parse_expr = function(min_bp)
+local function apply_implicit_comparison(node, operator, value)
+    if node.node_type == "expression" and
+    (node.value == "and" or node.value == "or" or node.value == "xor") then
+        node.left = apply_implicit_comparison(node.left, operator, value)
+        node.right = apply_implicit_comparison(node.right, operator, value)
+    
+        return node
+    end
+
+    return create_expr({
+        value = operator,
+        fix = "infix",
+        left = node,
+        right = value
+    })
+end
+
+parse_expr = function(min_bp, implicit_comparison)
     local lhs = parse_prefix()
 
     while true do
@@ -401,6 +437,7 @@ parse_expr = function(min_bp)
         if not token then break end
 
         local operator = token.VALUE
+
         local binding = bp.binding_power[operator]
 
         if not binding then break end
@@ -411,7 +448,13 @@ parse_expr = function(min_bp)
 
         advance()
 
-        local rhs = parse_expr(rightbp)
+        local rhs = parse_expr(rightbp, implicit_comparison)
+
+        if implicit_comparison and (operator == "and" or operator == "or" or operator == "xor") then
+            if rhs and bp.binding_power[rhs.value] and bp.binding_power[rhs.value][1] == 40 then
+                lhs = apply_implicit_comparison(lhs, rhs.value, rhs.right)
+            end
+        end
 
         lhs = create_expr({
             value = operator,
@@ -428,8 +471,7 @@ local keywords = {
     "var", "type", "const", "func",
     "usable", "unusable", "while",
     "return", "else", "imports",
-    "export", "if", "for",
-    "ref"
+    "export", "if", "for"
 }
 
 local type_references = {
@@ -664,7 +706,7 @@ local function parse_statement()
                 local body = {}
                 while check_t(0) and check_t(0).VALUE ~= "}" and check_t(0).VALUE ~= "<eof>" do
                     local token = check_t(0)
-                    if token.TYPE == "keywords" then
+                    if token.TYPE == "keywords" and token.VALUE ~= "ref" then
                         local stmt = parse_statement()
                         if stmt then
                             body[#body+1] = stmt
@@ -694,7 +736,7 @@ local function parse_statement()
             end)
             :case("if", function()
                 advance()
-                local condition = parse_expr(0)
+                local condition = parse_expr(0, true)
                 if not condition then
                     local data = {
                         category = "Syntax",
@@ -710,7 +752,7 @@ local function parse_statement()
                     while check_t(0) and check_t(0).VALUE ~= "}" and check_t(0).VALUE ~= "<eof>" do
                         local token = check_t(0)
 
-                        if token.TYPE == "keywords" then
+                        if token.TYPE == "keywords" and token.VALUE ~= "ref" then
                             local stmt = parse_statement()
                             if stmt then
                                 body[#body+1] = stmt
@@ -726,7 +768,7 @@ local function parse_statement()
                         local data = {
                             category = "Syntax",
                             readable_message = "Expected closing '}' for if body",
-                            compiler_message = "no body"
+                            compiler_message = "unfinished body"
                         }
                         print_error(data)
                     end
@@ -748,6 +790,138 @@ local function parse_statement()
                     print_error(data)
                 end
             end)
+            :case("while", function()
+                advance()
+                local condition = parse_expr(0, true)
+                if not condition then
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "'while' statement needs a condition",
+                        compiler_message = "no condition"
+                    }
+                    print_error(data)
+                end
+
+                if check_t(0) and check_t(0).VALUE == "{" then
+                    advance()
+                    local body = {}
+                    while check_t(0) and check_t(0).VALUE ~= "}" do
+                        local token = check_t(0)
+                        if token.TYPE == "keywords" and token.VALUE ~= "ref" then
+                            local stmt = parse_statement()
+                            if stmt then
+                                body[#body+1] = stmt
+                            end
+                        else
+                            local expr = parse_expr(0)
+                            if expr then
+                                body[#body+1] = expr
+                            end
+                        end
+                    end
+                    if not check_t(0) or check_t(0).VALUE ~= "}" then
+                        local data = {
+                            category = "Syntax",
+                            readable_message = "Expected closing '}' for while body",
+                            compiler_message = "unfinished body"
+                        }
+                        print_error(data)
+                    end
+                    advance()
+                    statement = create_statement({
+                        statement_type = "while_cond",
+                        fix = "binary",
+                        left = condition,
+                        right = body,
+                        declared_type = "Bool",
+                        value = "while"
+                    })
+                end
+            end)
+            :case("export", function()
+                advance()
+
+                local decl = parse_statement()
+
+                if decl == nil then
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "Expected a declaration of export",
+                        compiler_message = "unexpected closure"
+                    }
+                    print_error(data)
+                end
+
+                local is_decl = (
+                    decl.statement_type == "var" or
+                    decl.statement_type == "const" or
+                    decl.statement_type == "func" or
+                    decl.statement_type == "type"
+                )
+
+                if is_decl then
+                    statement = create_expr({
+                        value = "export",
+                        fix = "prefix",
+                        right = decl
+                    })
+                else
+                    if decl.value == "export" then
+                        local data = {
+                            category = "Semantic",
+                            readable_message = "Cannot assign an export statement to an export",
+                            compiler_message = "export recursion"
+                        }
+                        print_error(data)
+                    end
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "Not a valid exportation",
+                        compiler_message = "missing export declaration"
+                    }
+                    print_error(data)
+                end
+            end)
+            :case("imports", function()
+                advance()
+
+                local token = check_t(0)
+
+                switch(token.TYPE)
+                    :case("value", function()
+                        statement = create_statement({
+                            statement_type = "imports",
+                            value = "imports_mod",
+                            fix = "unary",
+                            right = create_literal({
+                                node_type = "literal",
+                                literal_type = "String",
+                                value = token.VALUE
+                            })
+                        })
+                    end)
+                    :case("identifier", function()
+                        statement = create_statement({
+                            statement_type = "imports",
+                            value = "imports_lib",
+                            fix = "unary",
+                            right = create_literal({
+                                node_type = "literal",
+                                literal_type = "identifier",
+                                value = token.VALUE
+                            })
+                        })
+                    end)
+                    :default(function()
+                        local data = {
+                            category = "Syntax",
+                            readable_message = "Expected a string or module identifier after 'imports'",
+                            compiler_message = "invalid import target"
+                        }
+                        print_error(data)
+                    end)
+            end)
+
     end
     return statement
 end
@@ -763,7 +937,7 @@ local function redux_parser(tokens)
     while check_t(0) and check_t(0).VALUE ~= "<eof>" do
         local token = check_t(0)
 
-        if token.TYPE == "keywords" then
+        if token.TYPE == "keywords" and token.VALUE ~= "ref" then
             local statement = parse_statement()
             if statement then
                 AST[#AST+1] = statement

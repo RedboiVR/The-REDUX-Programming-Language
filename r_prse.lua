@@ -695,12 +695,55 @@ local function parse_statement()
             :case("if", function()
                 advance()
                 local condition = parse_expr(0)
+                if not condition then
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "'if' statement needs a condition",
+                        compiler_message = "no condition"
+                    }
+                    print_error(data)
+                end
 
                 if check_t(0) and check_t(0).VALUE == "{" then
-                    
+                    advance()
+                    local body = {}
+                    while check_t(0) and check_t(0).VALUE ~= "}" and check_t(0).VALUE ~= "<eof>" do
+                        local token = check_t(0)
+
+                        if token.TYPE == "keywords" then
+                            local stmt = parse_statement()
+                            if stmt then
+                                body[#body+1] = stmt
+                            end
+                        else
+                            local expr = parse_expr(0)
+                            if expr then
+                                body[#body+1] = expr
+                            end
+                        end
+                    end
+                    if not check_t(0) or check_t(0).VALUE ~= "}" then
+                        local data = {
+                            category = "Syntax",
+                            readable_message = "Expected closing '}' for if body",
+                            compiler_message = "no body"
+                        }
+                        print_error(data)
+                    end
+                    advance()
+                    statement = create_statement({
+                        statement_type = "if_cond",
+                        fix = "binary",
+                        left = condition,
+                        right = body,
+                        declared_type = "Bool",
+                        value = "if"
+                    })
                 else
                     local data = {
-
+                        category = "Syntax",
+                        readable_message = "'if' statement needs a body if the condition is true",
+                        compiler_message = "no body"
                     }
                     print_error(data)
                 end

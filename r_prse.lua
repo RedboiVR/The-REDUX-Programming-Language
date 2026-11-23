@@ -203,12 +203,14 @@ local function create_statement(data)
 
     return {
         node_type = "statement",
+        else_body = data.else_body,
         declared_type = data.declared_type,
         value = data.value,
         fix = data.fix,
         left = data.left,
         right = data.right,
-        statement_type = data.statement_type
+        statement_type = data.statement_type,
+        parameters = data.parameters
     }
 end
 
@@ -438,6 +440,29 @@ parse_expr = function(min_bp, implicit_comparison)
 
         local operator = token.VALUE
 
+        local closing = check_t(0)
+
+        if operator == "(" then
+            if not closing or closing.VALUE ~= ")" then
+                local data = {
+                    category = "Syntax",
+                    readable_message = "Function calls currently cannot have arguments rn :(",
+                    compiler_message = "no function calls rn haha"
+                }
+                print_error(data)
+            end
+    
+            advance()
+    
+            lhs = create_expr({
+                value = "func_call",
+                fix = "postfix",
+                left = lhs
+            })
+
+            goto continue
+        end
+
         local binding = bp.binding_power[operator]
 
         if not binding then break end
@@ -462,6 +487,7 @@ parse_expr = function(min_bp, implicit_comparison)
             left = lhs,
             right = rhs
         })
+        ::continue::
     end
 
     return lhs
@@ -492,8 +518,10 @@ end
 
 local function check_union()
     local union = {}
-    
-    if ((not check_t(0)) or check_t(0).VALUE == "<eof>") or (not item_is_in_array(check_t(0).VALUE, type_references)) then
+
+    if ((not check_t(0)) or check_t(0).VALUE == "<eof>") or
+        (not item_is_in_array(check_t(0).VALUE, type_references)) then
+
         local data = {
             category = "Type",
             readable_message = "First token isn't a valid type",
@@ -509,28 +537,20 @@ local function check_union()
         if item_is_in_array(token.VALUE, type_references) then
             union[#union+1] = token
             advance()
+
         elseif token.VALUE == ":" then
-            if not following then
-                local data = {
-                    category = "Type",
-                    readable_message = "Expected type after ':'",
-                    compiler_message = "malformed union"
-                }
-                print_error(data)
-            end
-        
-            advance()
-        else
             if not following or not item_is_in_array(following.VALUE, type_references) then
                 local data = {
                     category = "Type",
-                    readable_message = "Type doesn't exist",
+                    readable_message = "Expected a valid type after ':'",
                     compiler_message = "malformed union"
                 }
                 print_error(data)
-            else
-                break
             end
+
+            advance()
+        else
+            break
         end
     end
 
@@ -667,6 +687,54 @@ local function parse_statement()
                 advance()
                 local ident = parse_prefix()
 
+                local parameters = {}
+                if check_t(0) and check_t(0).VALUE == "(" then
+                    advance()
+                    while check_t(0) and check_t(0).VALUE ~= ")" do
+                        local param_ident = parse_prefix()
+
+                        if not param_ident or param_ident.node_type ~= "identifier" then
+                            local data = {
+                                category = "Syntax",
+                                readable_message = "Expected a parameter identifier",
+                                compiler_message = "invalid parameter"
+                            }
+                            print_error(data)
+                        end
+
+                        local param_type
+
+                        if check_t(0) and check_t(0).VALUE == ":" then
+                            advance()
+                            param_type = parse_type()
+                        end
+                        parameters[#parameters + 1] = create_expr({
+                            value = "parameter",
+                            fix = "infix",
+                            left = param_ident,
+                            right = {
+                                literal = param_type and create_literal({
+                                    node_type = "literal",
+                                    literal_type = "type",
+                                    value = param_type
+                                }) or nil,
+                                value = param_ident.value,
+                                type = param_type
+                            },
+                            parameters = parameters
+                        })
+                    end
+                    if not check_t(0) or check_t(0).VALUE ~= ")" then
+                        local data = {
+                            category = "Syntax",
+                            readable_message = "Expected ')' after parameters",
+                            compiler_message = "nonexistant param closer"
+                        }
+                        print_error(data)
+                    end
+                    advance()
+                end
+
                 if not ident then
                     local data = {
                         category = "Syntax",
@@ -773,9 +841,65 @@ local function parse_statement()
                         print_error(data)
                     end
                     advance()
+
+                    local else_body
+                    local next_token = check_t(0)
+                    
+                    if next_token and next_token.VALUE == "else" then
+                        advance()
+                    
+                        local next_branch = check_t(0)
+                    
+                        if next_branch and next_branch.VALUE == "if" then
+                            -- else if: recursively parse another if statement
+                            else_body = {parse_statement()}
+                        else
+                            -- else: parse a normal block
+                            local opening = check_t(0)
+                    
+                            if not opening or opening.VALUE ~= "{" then
+                                print_error({
+                                    category = "Syntax",
+                                    readable_message = "Expected '{' or 'if' after 'else'",
+                                    compiler_message = "missing else body"
+                                })
+                            end
+                    
+                            advance()
+                            else_body = {}
+                    
+                            while check_t(0) and check_t(0).VALUE ~= "}" and check_t(0).VALUE ~= "<eof>" do
+                                local token = check_t(0)
+                    
+                                if token.TYPE == "keywords" and token.VALUE ~= "ref" then
+                                    local stmt = parse_statement()
+                                    if stmt then
+                                        else_body[#else_body+1] = stmt
+                                    end
+                                else
+                                    local expr = parse_expr(0)
+                                    if expr then
+                                        else_body[#else_body+1] = expr
+                                    end
+                                end
+                            end
+                    
+                            if not check_t(0) or check_t(0).VALUE ~= "}" then
+                                print_error({
+                                    category = "Syntax",
+                                    readable_message = "Expected closing '}' for else body",
+                                    compiler_message = "unfinished else body"
+                                })
+                            end
+                    
+                            advance()
+                        end
+                    end
+                    
                     statement = create_statement({
                         statement_type = "if_cond",
                         fix = "binary",
+                        else_body = else_body,
                         left = condition,
                         right = body,
                         declared_type = "Bool",
@@ -921,6 +1045,45 @@ local function parse_statement()
                         print_error(data)
                     end)
             end)
+            :case("for", function()
+                advance()
+
+                local arguments = {parse_expr(0)}
+                
+                while check_t(0) and check_t(0).VALUE == "," do
+                    advance()
+
+                    local argument = parse_expr(0)
+                    if not argument then
+                        local data = {
+                            category = "Syntax",
+                            readable_message = "Expected an argument after ','",
+                            compiler_message = "missing for argument"
+                        }
+                        print_error(data)
+                    end
+                    arguments[#arguments+1] = argument
+                end
+
+                local index = arguments[1]
+                if not index or index.node_type ~= "identifier" then
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "Expected an index identifier after 'for'",
+                        compiler_message = "invalid for index"
+                    }
+                    print_error(data)
+                end
+                local iterator = arguments[#arguments]
+                if not iterator or arguments[1] == iterator then
+                    local data = {
+                        category = "Syntax",
+                        readable_message = "Expected an iterator identifier",
+                        compiler_message = "invalid for iterator"
+                    }
+                    print_error(data)
+                end
+            end)
 
     end
     return statement
@@ -938,6 +1101,7 @@ local function redux_parser(tokens)
         local token = check_t(0)
 
         if token.TYPE == "keywords" and token.VALUE ~= "ref" then
+            print("PARSING: ", token.VALUE)
             local statement = parse_statement()
             if statement then
                 AST[#AST+1] = statement
